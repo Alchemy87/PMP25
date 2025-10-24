@@ -1,0 +1,58 @@
+from pgmpy.models import MarkovNetwork
+import networkx as nx
+import matplotlib.pyplot as plt
+import itertools
+import numpy as np
+
+edges = [
+    ('A1', 'A2'),
+    ('A1', 'A3'),
+    ('A2', 'A4'),
+    ('A2', 'A5'),
+    ('A3', 'A4'),
+    ('A4', 'A5')
+]
+
+model = MarkovNetwork(edges)
+G = nx.Graph()
+G.add_edges_from(model.edges())
+
+pos = {
+    'A1': (0, 1),
+    'A2': (1, 1),
+    'A3': (0, 0),
+    'A4': (1, 0),
+    'A5': (2, 0.5)
+}
+
+plt.figure(figsize=(5, 4))
+nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=1500, font_size=12)
+plt.title("Markov Random Field A1...A5")
+plt.show()
+
+cliques = list(nx.find_cliques(G))
+print("Cliques:", cliques)
+
+values = [-1, 1]
+combinations = list(itertools.product(values, repeat=5))
+
+def phi(vals):
+    return np.exp(sum(vals))
+
+best_config = None
+best_prob = -1
+
+for comb in combinations:
+    A = {'A1': comb[0], 'A2': comb[1], 'A3': comb[2], 'A4': comb[3], 'A5': comb[4]}
+    prod = 1
+    for c in cliques:
+        vals = [A[v] for v in c]
+        prod *= phi(vals)
+    if prod > best_prob:
+        best_prob = prod
+        best_config = A.copy()
+
+print("\nBest config:")
+for var, val in best_config.items():
+    print(f"{var} = {val}")
+print(f"\nMax value: {best_prob:.2e}")
