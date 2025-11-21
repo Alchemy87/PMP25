@@ -1,0 +1,36 @@
+from pgmpy.models import DiscreteBayesianNetwork
+from pgmpy.factors.discrete import TabularCPD
+from pgmpy.inference import VariableElimination
+import networkx as nx
+import matplotlib.pyplot as plt
+
+x=DiscreteBayesianNetwork([('o','h'),('o','w'),('h','r'),('w','r'),('h','e'),('r','c')])
+
+cp1=TabularCPD('o',2,[[.3],[.7]])
+cp2=TabularCPD('h',2,[[.9,.2],[.1,.8]],['o'],[2])
+cp3=TabularCPD('w',2,[[.1,.6],[.9,.4]],['o'],[2])
+cp4=TabularCPD('r',2,[[.6,.9,.3,.5],[.4,.1,.7,.5]],['h','w'],[2,2])
+cp5=TabularCPD('e',2,[[.8,.2],[.2,.8]],['h'],[2])
+cp6=TabularCPD('c',2,[[.85,.40],[.15,.60]],['r'],[2])
+
+x.add_cpds(cp1,cp2,cp3,cp4,cp5,cp6)
+x.check_model()
+
+pos={'o':(0,2),'h':(-1,1),'w':(1,1),'r':(0,0),'e':(-1,-1),'c':(1,-1)}
+plt.clf()
+nx.draw(x,pos,with_labels=True,arrows=True,node_size=1500)
+plt.show()
+
+q=VariableElimination(x)
+print(q.query(['h'],evidence={'c':0}))
+print(q.query(['e'],evidence={'c':0}))
+print(q.map_query(['h','w'],evidence={'c':0}))
+
+
+'''
+(c) W si E devin independente daca stim H. Practic drumul de influenta este W -> R <- H -> E si cand conditionam pe H, nodul ala blocheaza informatia (d-separation), deci W nu mai schimba nimic la E daca H e cunoscut.
+O si C devin independente daca stim R. O influenteaza (indirect) C prin R, dar daca conditionam pe R, drumul O -> (H,W) -> R -> C e blocat si nu mai trece info mai departe. Deci daca stim R, faptul ca e frig afara nu mai spune nimic nou despre confort.
+O si C nu sunt independente fara conditie, pt ca drumul O -> R -> C este activ fara sa conditionam nimic, deci exista legatura (nu e blocat de niciun nod), deci O poate afecta C prin R.
+
+'''
+
