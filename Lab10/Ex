@@ -1,0 +1,39 @@
+import numpy as np
+import pymc3 as pm
+import arviz as az
+
+x = np.array([1.5,2.0,2.3,3.0,3.5,4.0,4.5,5.0,5.5,6.0,
+              6.5,7.0,7.5,8.0,8.5,9.0,9.5,10.0,10.5,11.0])
+
+y = np.array([5.2,6.8,7.5,8.0,9.0,10.2,11.5,12.0,13.5,14.0,
+              15.0,15.5,16.2,17.0,18.0,18.5,19.5,20.0,21.0,22.0])
+
+with pm.Model() as m:
+    a = pm.Normal('a',mu=0,sd=10)
+    b = pm.Normal('b',mu=0,sd=10)
+    s = pm.HalfNormal('s',sd=10)
+    mu = a + b * x
+    y_obs = pm.Normal('y_obs',mu=mu,sd=s,observed=y)
+    tr = pm.sample(2000,tune=1000,chains=2,random_seed=123,return_inferencedata=False)
+    x_new = np.array([3.0,7.0,10.0])
+    mu_new = a + b * x_new
+    y_new = pm.Normal('y_new',mu=mu_new,sd=s,shape=len(x_new))
+    ppc = pm.sample_posterior_predictive(tr,vars=[y_new],random_seed=123)
+
+print(az.summary(tr,var_names=['a','b','s'],hdi_prob=0.95))
+
+hdi_a = az.hdi(tr['a'],hdi_prob=0.95)
+hdi_b = az.hdi(tr['b'],hdi_prob=0.95)
+hdi_s = az.hdi(tr['s'],hdi_prob=0.95)
+
+print("HDI 95 a:",hdi_a)
+print("HDI 95 b:",hdi_b)
+print("HDI 95 s:",hdi_s)
+
+y_new_samples = ppc['y_new']
+mp = y_new_samples.mean(axis=0)
+hdi_pred = az.hdi(y_new_samples,hdi_prob=0.95)
+
+print("x noi:",x_new)
+print("media predictii:",mp)
+print("HDI 95 predictii:",hdi_pred)
