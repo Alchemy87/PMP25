@@ -1,0 +1,64 @@
+import numpy as np
+import pandas as pd
+import pymc as pm
+import arviz as az
+
+def main():
+    df = pd.read_csv("Prices.csv")
+
+    y = df["price"].to_numpy()
+    x1 = df["speed"].to_numpy()
+    x2 = np.log(df["hd"].to_numpy())
+
+    m = np.isfinite(y) & np.isfinite(x1) & np.isfinite(x2)
+    y, x1, x2 = y[m], x1[m], x2[m]
+
+    x1_mean, x1_std = x1.mean(), x1.std()
+    x2_mean, x2_std = x2.mean(), x2.std()
+    y_mean, y_std = y.mean(), y.std()
+
+    x1n = (x1 - x1_mean) / x1_std
+    x2n = (x2 - x2_mean) / x2_std
+    yn = (y - y_mean) / y_std
+
+    # a
+    with pm.Model() as model:
+        a = pm.Normal("a", 0, 1)
+        b1 = pm.Normal("b1", 0, 1)
+        b2 = pm.Normal("b2", 0, 1)
+        s = pm.HalfNormal("s", 1)
+        mu = a + b1 * x1n + b2 * x2n
+        pm.Normal("y", mu, s, observed=yn)
+        idata = pm.sample(1500, tune=1500, chains=4, cores=4, target_accept=0.9, random_seed=1)
+
+    # b
+    print(az.hdi(idata, var_names=["b1", "b2"], hdi_prob=0.95).to_dataframe())
+
+    # c
+    print(az.summary(idata, var_names=["a", "b1", "b2", "s"], hdi_prob=0.95))
+
+    # d
+    speed_new = 33.0
+    hd_new = 540.0
+    x1_new = (speed_new - x1_mean) / x1_std
+    x2_new = (np.log(hd_new) - x2_mean) / x2_std
+
+    post = idata.posterior
+    a_s = post["a"].values.reshape(-1)
+    b1_s = post["b1"].values.reshape(-1)
+    b2_s = post["b2"].values.reshape(-1)
+    mu_s = a_s + b1_s * x1_new + b2_s * x2_new
+
+    mu_price = mu_s * y_std + y_mean
+    h = np.asarray(az.hdi(mu_price, hdi_prob=0.90)).ravel()
+    print(mu_price.mean(), h[0], h[1])
+
+    # e
+    s_s = post["s"].values.reshape(-1)
+    yrep = np.random.normal(mu_s, s_s)
+    price_rep = yrep * y_std + y_mean
+    h2 = np.asarray(az.hdi(price_rep, hdi_prob=0.90)).ravel()
+    print(h2[0], h2[1])
+
+if __name__ == "__main__":
+    main()
