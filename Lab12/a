@@ -1,0 +1,45 @@
+import pandas as pd
+import numpy as np
+import pymc as pm
+
+def f():
+    d=pd.read_csv("date_promovare_examen.csv")
+    d.columns=[x.strip().strip('"').strip("'") for x in d.columns]
+
+    x1=pd.to_numeric(d["ore_studiu"],errors="coerce").values
+    x2=pd.to_numeric(d["ore_somn"],errors="coerce").values
+    y=pd.to_numeric(d["promovare"],errors="coerce").values
+
+    m=np.isfinite(x1) & np.isfinite(x2) & np.isfinite(y)
+    x1=x1[m]
+    x2=x2[m]
+    y=y[m].astype(int)
+
+    u=np.unique(y)
+    if len(u)==2 and set(u)!={0,1}:
+        y=(y==u.max()).astype(int)
+
+    m1=x1.mean()
+    s1=x1.std()
+    m2=x2.mean()
+    s2=x2.std()
+    if s1==0 or s2==0:
+        raise RuntimeError("std zero")
+
+    z1=(x1-m1)/s1
+    z2=(x2-m2)/s2
+    x=np.column_stack([z1,z2])
+
+    with pm.Model() as model:
+        a=pm.Normal("a",0,10)
+        b=pm.Normal("b",0,2,shape=2)
+        mu=a+pm.math.dot(x,b)
+        teta=pm.Deterministic("teta",pm.math.sigmoid(mu))
+        bd_std=pm.Deterministic("bd_std",-a/b[1]-b[0]/b[1]*z1)
+        bd=pm.Deterministic("bd",m2+s2*bd_std)
+        yobs=pm.Bernoulli("yobs",p=teta,observed=y)
+        trace=pm.sample(3000,tune=3000,chains=4,cores=1,target_accept=0.99,init="adapt_diag")
+    return trace
+
+if __name__=="__main__":
+    f()
