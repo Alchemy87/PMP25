@@ -1,0 +1,108 @@
+import numpy as np
+import pandas as pd
+import pymc as pm
+import arviz as az
+import matplotlib.pyplot as plt
+
+def gen_dummy_csv(path="dummy.csv", order=5, n=50, noise=0.3, seed=1):
+    rng = np.random.default_rng(seed)
+    x = np.linspace(-1, 1, n)
+    beta = rng.normal(0, 1, size=order + 1)
+    X = np.vstack([x**k for k in range(order + 1)]).T
+    y = X @ beta + rng.normal(0, noise, size=n)
+    pd.DataFrame({"x": x, "y": y}).to_csv(path, index=False)
+    return beta
+
+def load_data(path="dummy.csv"):
+    d = pd.read_csv(path)
+    x = d["x"].to_numpy()
+    y = d["y"].to_numpy()
+    return x, y
+
+def fit_poly(x, y, order, beta_sd=10.0, draws=1000, tune=1000, seed=1):
+    with pm.Model() as m:
+        beta = pm.Normal("beta", 0, beta_sd, shape=order + 1)
+        sigma = pm.HalfNormal("sigma", 1.0)
+        mu = sum(beta[k] * x**k for k in range(order + 1))
+        pm.Normal("y", mu=mu, sigma=sigma, observed=y)
+        idata = pm.sample(draws=draws, tune=tune, chains=2, cores=1, random_seed=seed, target_accept=0.9, progressbar=False)
+    return m, idata
+
+def pred_mean_ci(idata, xgrid):
+    beta = idata.posterior["beta"].stack(s=("chain", "draw")).values
+    order = beta.shape[0] - 1
+    Xg = np.vstack([xgrid**k for k in range(order + 1)]).T
+    mu = Xg @ beta
+    m = mu.mean(axis=1)
+    lo = np.quantile(mu, 0.05, axis=1)
+    hi = np.quantile(mu, 0.95, axis=1)
+    return m, lo, hi
+
+def plot_fit(x, y, idata, title):
+    xg = np.linspace(x.min(), x.max(), 400)
+    m, lo, hi = pred_mean_ci(idata, xg)
+    plt.figure()
+    plt.scatter(x, y, s=18)
+    plt.plot(xg, m)
+    plt.fill_between(xg, lo, hi, alpha=0.2)
+    plt.title(title)
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.tight_layout()
+
+def compare_waic_loo(idatas, names):
+    rows = []
+    for nm, idata in zip(names, idatas):
+        w = az.waic(idata)
+        l = az.loo(idata)
+        rows.append([nm, float(w.elpd_waic), float(w.p_waic), float(l.elpd_loo), float(l.p_loo)])
+    return pd.DataFrame(rows, columns=["model", "elpd_waic", "p_waic", "elpd_loo", "p_loo"]).sort_values("elpd_loo", ascending=False)
+
+def plot_ic(df, title):
+    plt.figure()
+    x = np.arange(len(df))
+    plt.bar(x - 0.15, df["elpd_waic"].to_numpy(), width=0.3, label="WAIC")
+    plt.bar(x + 0.15, df["elpd_loo"].to_numpy(), width=0.3, label="LOO")
+    plt.xticks(x, df["model"].to_list())
+    plt.ylabel("elpd (bigger = better)")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+
+if __name__ == "__main__":
+    gen_dummy_csv("dummy.csv", order=5, n=50, noise=0.3, seed=1)
+    x, y = load_data("dummy.csv")
+
+    m5_100, id5_100 = fit_poly(x, y, order=5, beta_sd=100, seed=1)
+    plot_fit(x, y, id5_100, "order=5, beta sd=100")
+
+    m5_10, id5_10 = fit_poly(x, y, order=5, beta_sd=10, seed=1)
+    plot_fit(x, y, id5_10, "order=5, beta sd=10")
+
+    sds = np.array([10, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=float)
+    with pm.Model() as m5_vec:
+        beta = pm.Normal("beta", 0, sds, shape=6)
+        sigma = pm.HalfNormal("sigma", 1.0)
+        mu = sum(beta[k] * x**k for k in range(6))
+        pm.Normal("y", mu=mu, sigma=sigma, observed=y)
+        id5_vec = pm.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=1, target_accept=0.9, progressbar=False)
+    plot_fit(x, y, id5_vec, "order=5, beta sd=[10,0.1,0.1,0.1,0.1,0.1]")
+
+    gen_dummy_csv("dummy_500.csv", order=5, n=500, noise=0.3, seed=2)
+    x2, y2 = load_data("dummy_500.csv")
+
+    _, id5_100_500 = fit_poly(x2, y2, order=5, beta_sd=100, seed=2)
+    plot_fit(x2, y2, id5_100_500, "n=500, order=5, beta sd=100")
+
+    _, id5_10_500 = fit_poly(x2, y2, order=5, beta_sd=10, seed=2)
+    plot_fit(x2, y2, id5_10_500, "n=500, order=5, beta sd=10")
+
+    _, id1 = fit_poly(x, y, order=1, beta_sd=10, seed=3)
+    _, id2 = fit_poly(x, y, order=2, beta_sd=10, seed=4)
+    _, id3 = fit_poly(x, y, order=3, beta_sd=10, seed=5)
+
+    df = compare_waic_loo([id1, id2, id3], ["linear(1)", "quadratic(2)", "cubic(3)"])
+    print(df.to_string(index=False))
+    plot_ic(df, "WAIC & LOO (x,y from dummy.csv)")
+
+    plt.show()
